@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiple noUiSliders Example</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.css">
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <table id="sliderTable">
+        <thead>
+            <tr>
+      
+                
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Sliders will be generated here -->
+        </tbody>
+    </table>
+	<canvas id="frontDiagram"></canvas>
+	<canvas id="topDiagram"></canvas>
+	<canvas id="cutoutRender"></canvas>
+	<canvas id="fullRender"></canvas>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.6.0/nouislider.min.js"></script>
+    <script src="geom.js"></script>
+    <script src="Plane.js"></script>
+    <script src="draw.js"></script>
+    <script>
+		const eyeRadius = 50;
+		const itemsPerRow = 5;
+        const parameters = ['oc_yaw','oc_pitch','oc_distance','ic_yaw','ic_pitch','ic_distance','upperLid','lowerLid','iris_radius']; // Example parameters
+        const tableBody = document.querySelector('#sliderTable tbody');
+        var paramArray = {};
+   
+
+		
+		var workingRow = document.createElement('tr');
+		for (var c1=0;c1<parameters.length;c1++)
+		{
+			paramArray[parameters[c1]] = 50;
+			// Create table row
+            if (c1 > 0 && c1 % 5 == 0)
+            {
+				tableBody.appendChild(workingRow);
+				workingRow = document.createElement('tr');
+			}
+			workingRow.innerHTML += '<td>' + parameters[c1] + ' <div id="slider-' + parameters[c1] + '" class="slider"></div><input type="number" id="input-' + parameters[c1] + '" min=0 max=100 /></td>';
+		}
+		tableBody.appendChild(workingRow);
+		for (var c1=0;c1<parameters.length;c1++)
+		{
+			 // Initialize noUiSlider
+            var slider = document.getElementById(`slider-${parameters[c1]}`);
+            var input = document.getElementById(`input-${parameters[c1]}`);
+
+            noUiSlider.create(slider, {
+                start: 50, // Initial value
+                range: {
+                    'min': 0,
+                    'max': 100
+                },
+                tooltips: true,
+                connect: [true, false]
+            });
+
+            // Update input value when slider changes
+            slider.noUiSlider.on('update', function (values, handle) {
+				
+				var input = document.getElementById(`input-${this.param}`);
+				paramArray[this.param] = values[handle];
+                input.value = values[handle];
+                draw();
+            }.bind({param:parameters[c1]}));
+
+            // Update slider when input value changes
+            input.addEventListener('change', function () {
+				slider = document.getElementById(`slider-${this.param}`);
+				paramArray[this.param] = this.input.value;
+                slider.noUiSlider.set(this.input.value);
+                draw();
+                
+            }.bind({input:input,slider:slider,param:parameters[c1]}));
+		}
+        
+		function logCanvas(canvas)
+		{
+			var dataURL = canvas.toDataURL();
+			console.log('%c ', `font-size:100px; background:url(${dataURL}) no-repeat;`);
+		}
+		
+		function draw ()
+		{
+			//start by assuming straight out. This is the left eye, by the way
+			var ocDistance = (paramArray["oc_distance"]/100) * eyeRadius + eyeRadius;
+			var icDistance = (paramArray["ic_distance"]/100) * eyeRadius + eyeRadius;
+			var ocPitch = (paramArray["oc_pitch"]/100) * Math.PI - Math.PI/2;
+			var icPitch = (paramArray["ic_pitch"]/100) * Math.PI - Math.PI/2;
+			var ocYaw = (paramArray["oc_yaw"]/100) * Math.PI - Math.PI/2;
+			var icYaw = (paramArray["ic_yaw"]/100) * Math.PI - Math.PI/2;
+		
+			
+			var oc = {"x":0,"y":0,"z":0};
+			var ic = {"x":0,"y":0,"z":0};
+			
+			//apply pitch
+			oc.x = Math.cos(ocPitch) * ocDistance;
+			oc.z = Math.sin(ocPitch) * ocDistance;
+
+			ic.x = Math.cos(icPitch) * -icDistance;
+			ic.z = Math.sin(icPitch) * icDistance;
+
+			//apply yaw
+			oc.y = Math.sin(ocYaw) * oc.x;
+			oc.x = Math.cos(ocYaw) * oc.x;
+
+			ic.y = Math.sin(icYaw) * ic.x;
+			ic.x = Math.cos(icYaw) * ic.x;
+			
+			// Get the context and set dimensions for the first two canvases (frontDiagram and topDiagram)
+			var frontDiagramCtx = document.getElementById('frontDiagram').getContext('2d');
+			document.getElementById('frontDiagram').width = eyeRadius * 4;
+			document.getElementById('frontDiagram').height = eyeRadius * 4;
+
+			var topDiagramCtx = document.getElementById('topDiagram').getContext('2d');
+			document.getElementById('topDiagram').width = eyeRadius * 4;
+			document.getElementById('topDiagram').height = eyeRadius * 4;
+
+			// Get the context for the other canvases (cutoutRender and fullRender), but no resizing is needed
+			var cutoutRenderCtx = document.getElementById('cutoutRender').getContext('2d');
+			document.getElementById('cutoutRender').width = eyeRadius * 9;
+			document.getElementById('cutoutRender').height = eyeRadius * 4;
+			var fullRenderCtx = document.getElementById('fullRender').getContext('2d');
+			
+			var irisRadius = (paramArray["iris_radius"] / 100) * eyeRadius;
+			
+			//use crossproduct between ic,oc and 0,0,1 to get upperEyelidControl
+			var icoc_vector = [oc.x-ic.x,oc.y-ic.y,oc.z-ic.z];
+			
+			var eyelidReferencePoints = getReferencePoints(icoc_vector);
+			
+			var upperEyeOpen = (paramArray["upperLid"]/100);
+			var upperEyelidControl =
+			[
+				(eyelidReferencePoints[1][0] - eyelidReferencePoints[0][0])*upperEyeOpen + eyelidReferencePoints[0][0],
+				(eyelidReferencePoints[1][1] - eyelidReferencePoints[0][1])*upperEyeOpen + eyelidReferencePoints[0][1],
+				(eyelidReferencePoints[1][2] - eyelidReferencePoints[0][2])*upperEyeOpen + eyelidReferencePoints[0][2]
+			]; //*should* be fine if renormalized
+			upperEyelidControl[2] *= -1;
+			var upperEyelidPlane = new Plane (crossProduct(icoc_vector,upperEyelidControl), [ic.x,ic.y,ic.z]);
+			var upperEyelidCircle = upperEyelidPlane.sphereToCircle([0,0,0],eyeRadius);
+			
+			var lowerEyeOpen = (paramArray["lowerLid"]/100);
+			var lowerEyelidControl =
+			[
+				(eyelidReferencePoints[1][0] - eyelidReferencePoints[0][0])*lowerEyeOpen + eyelidReferencePoints[0][0],
+				(eyelidReferencePoints[1][1] - eyelidReferencePoints[0][1])*lowerEyeOpen + eyelidReferencePoints[0][1],
+				(eyelidReferencePoints[1][2] - eyelidReferencePoints[0][2])*lowerEyeOpen + eyelidReferencePoints[0][2]
+			]; //*should* be fine if renormalized
+			var lowerEyelidPlane = new Plane (crossProduct(icoc_vector,lowerEyelidControl), [ic.x,ic.y,ic.z]);
+			var lowerEyelidCircle = lowerEyelidPlane.sphereToCircle([0,0,0],eyeRadius);
+			
+			console.log("circle",lowerEyelidCircle.center);
+			console.log("radius",lowerEyelidCircle.center);
+			
+			
+			
+			var ic2D_upper = upperEyelidPlane.to2D([ic.x,ic.y,ic.z]);
+			var oc2D_upper = upperEyelidPlane.to2D([oc.x,oc.y,oc.z]);
+			
+			var ic2D_lower = lowerEyelidPlane.to2D([ic.x,ic.y,ic.z]);
+			var oc2D_lower = lowerEyelidPlane.to2D([oc.x,oc.y,oc.z]);
+			
+			//************************
+			//actual drawing section
+			//************************
+			
+			var frontDiagramDrawingTasks = [];
+			var topDiagramTasks = [];
+			
+			//Front Diagram
+			
+			// 1. Draw sky blue background
+			drawSkyBackground(frontDiagramCtx, eyeRadius);
+
+			// 2. Draw a white circle with a thin black outline at the center
+			drawWhiteCircle(frontDiagramCtx, eyeRadius);
+
+			// 3. Draw a solid black circle (iris)
+			drawIris(frontDiagramCtx, eyeRadius, irisRadius);
+
+			// 4. Draw a blue circle centered at oc.x, oc.z
+			drawColoredCircle(frontDiagramCtx, oc.x + eyeRadius * 2, oc.z + eyeRadius * 2, eyeRadius * 0.1, 'blue');
+
+			// 5. Draw a red circle centered at ic.x, ic.z
+			drawColoredCircle(frontDiagramCtx, ic.x + eyeRadius * 2, ic.z + eyeRadius * 2, eyeRadius * 0.1, 'red');
+
+			// 6. Draw the upper eyelid line
+			drawEyelidLine(frontDiagramCtx, ic, oc, eyeRadius, upperEyelidPlane, upperEyelidCircle, ic2D_upper, oc2D_upper);
+
+			// 7. Draw the lower eyelid line
+			drawEyelidLine(frontDiagramCtx, ic, oc, eyeRadius, lowerEyelidPlane, lowerEyelidCircle, ic2D_lower, oc2D_lower);
+			
+			// 8. Draw a label
+			drawLabel(frontDiagramCtx, 'Front Diagram', eyeRadius * 2, 10);
+			
+			//Top Diagram
+			
+			// 1. Draw sky blue background
+			drawSkyBackground(topDiagramCtx, eyeRadius);
+
+			// 2. Draw a white circle with a thin black outline at the center
+			drawWhiteCircle(topDiagramCtx, eyeRadius);
+
+			// Save the current context state
+			topDiagramCtx.save();
+
+			// Set the clipping region to the white circle
+			topDiagramCtx.beginPath();
+			topDiagramCtx.arc(eyeRadius * 2, eyeRadius * 2, eyeRadius, 0, 2 * Math.PI);
+			topDiagramCtx.clip();
+
+			// 3. Draw a solid black circle (iris)
+			drawTopIris(topDiagramCtx, eyeRadius, irisRadius);
+
+			// Restore the original context state
+			topDiagramCtx.restore();
+
+			// 4. Draw a blue circle centered at oc.x, oc.y
+			drawColoredCircle(topDiagramCtx, oc.x + eyeRadius * 2, oc.y + eyeRadius * 2, eyeRadius * 0.1, 'blue');
+
+			// 5. Draw a red circle centered at ic.x, ic.y
+			drawColoredCircle(topDiagramCtx, ic.x + eyeRadius * 2, ic.y + eyeRadius * 2, eyeRadius * 0.1, 'red');
+
+			// 6. Draw the upper eyelid line
+			drawEyelidLine(topDiagramCtx, ic, oc, eyeRadius, upperEyelidPlane, upperEyelidCircle, ic2D_upper, oc2D_upper,"top");
+			
+			// 7. Draw the lower eyelid line
+			drawEyelidLine(topDiagramCtx, ic, oc, eyeRadius, lowerEyelidPlane, lowerEyelidCircle, ic2D_lower, oc2D_lower, "top");
+			
+			//8. Draw a label
+			drawLabel(topDiagramCtx, 'Top Diagram', eyeRadius * 2, 10);
+			
+			//cutout render
+			var offScreenCanvas = document.createElement('canvas');
+			offScreenCanvas.width = eyeRadius * 4;
+			offScreenCanvas.height = eyeRadius * 4;
+			var offScreenCtx = offScreenCanvas.getContext('2d');
+			
+			//1. start a clipping path and draw the upper eyelid
+			offScreenCtx.save();
+			offScreenCtx.beginPath();
+			drawEyelidClip(offScreenCtx, ic, oc, eyeRadius, upperEyelidPlane, upperEyelidCircle, ic2D_upper, oc2D_upper);
+			drawEyelidClip(offScreenCtx, ic, oc, eyeRadius, lowerEyelidPlane, lowerEyelidCircle, ic2D_lower, oc2D_lower);
+			
+			offScreenCtx.closePath();
+			offScreenCtx.clip();
+			drawWhiteCircle(offScreenCtx, eyeRadius);
+			drawIris(offScreenCtx, eyeRadius, irisRadius);
+			offScreenCtx.restore();
+			
+			//2. make a clipping path for the eyeball, and draw both eyelids
+			offScreenCtx.save();
+			offScreenCtx.beginPath();
+			offScreenCtx.arc(eyeRadius * 2, eyeRadius * 2, eyeRadius, 0, 2 * Math.PI);
+			offScreenCtx.clip();
+			drawEyelidLine(offScreenCtx, ic, oc, eyeRadius, upperEyelidPlane, upperEyelidCircle, ic2D_upper, oc2D_upper,"front",false);
+			drawEyelidLine(offScreenCtx, ic, oc, eyeRadius, lowerEyelidPlane, lowerEyelidCircle, ic2D_lower, oc2D_lower,"front",false);
+			offScreenCtx.restore();
+			
+			//3. draw a background on the canvas
+			cutoutRenderCtx.fillStyle = "#E0AC69";
+			cutoutRenderCtx.fillRect(0,0,document.getElementById('cutoutRender').width,document.getElementById('cutoutRender').height);
+			
+			//4. copy the offscreen canvas to the cutoutRender canvas
+			var mirroredCanvas = document.createElement('canvas');
+			mirroredCanvas.width = eyeRadius * 4;
+			mirroredCanvas.height = eyeRadius * 4;
+			var mirroredCtx = mirroredCanvas.getContext('2d');
+			
+			var eyeWidth = eyeRadius * 2;
+			console.log(document.getElementById('cutoutRender').width/2);
+			cutoutRenderCtx.drawImage(offScreenCanvas, eyeRadius * 5,0);
+			
+			mirroredCtx.save();
+			mirroredCtx.scale(-1, 1);
+			mirroredCtx.translate(-mirroredCanvas.width,0);
+			mirroredCtx.drawImage(offScreenCanvas,0,0);
+			
+			 
+			cutoutRenderCtx.drawImage(mirroredCanvas, eyeRadius,0);
+			mirroredCtx.restore();
+		}
+    
+    </script>
+</body>
+</html>
