@@ -102,8 +102,8 @@
 		function draw ()
 		{
 			//start by assuming straight out. This is the left eye, by the way
-			var ocDistance = (paramArray["oc_distance"]/100) * eyeRadius + eyeRadius;
-			var icDistance = (paramArray["ic_distance"]/100) * eyeRadius + eyeRadius;
+			var ocDistance = (paramArray["oc_distance"]/100) * eyeRadius + eyeRadius + 0.01;
+			var icDistance = (paramArray["ic_distance"]/100) * eyeRadius + eyeRadius+0.01;
 			var ocPitch = (paramArray["oc_pitch"]/100) * Math.PI - Math.PI/2;
 			var icPitch = (paramArray["ic_pitch"]/100) * Math.PI - Math.PI/2;
 			var ocYaw = (paramArray["oc_yaw"]/100) * Math.PI - Math.PI/2;
